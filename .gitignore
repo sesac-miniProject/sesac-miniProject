@@ -1,6 +1,7 @@
 # data files
 *.csv
 *.json
+*.jsonl
 
 # python cache
 __pycache__/
