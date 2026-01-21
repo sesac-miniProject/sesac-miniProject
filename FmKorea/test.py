@@ -1,191 +1,144 @@
 import os
 import pandas as pd
+import numpy as np
 import streamlit as st
 import FinanceDataReader as fdr
+import plotly.express as px
 from streamlit_lightweight_charts import renderLightweightCharts
+from datetime import timedelta
 
-st.set_page_config(layout="wide")  # wide 레이아웃 [web:21]
+st.set_page_config(layout="wide", page_title="주식 심리 및 상관관계 분석")
+
+# 1. CSS 스타일 정의
+st.markdown("""
+    <style>
+    [data-testid="stMetric"] { background-color: transparent !important; border: none !important; box-shadow: none !important; padding: 5px !important; }
+    [data-testid="stMetricValue"] { font-size: 28px !important; font-weight: 700 !important; }
+    .status-box { font-size: 18px; font-weight: bold; margin-top: -5px; padding-left: 5px; }
+    </style>
+    """, unsafe_allow_html=True)
 
 # =========================
-# Sidebar: 설정
+# 2. 데이터 로드 함수
 # =========================
-st.sidebar.header("설정")
+@st.cache_data
+def get_fng_data(csv_path, start_date, end_date):
+    if not os.path.exists(csv_path): return pd.DataFrame()
+    df = pd.read_csv(csv_path)
+    df["date"] = pd.to_datetime(df["date"]).dt.date
+    return df[(df["date"] >= start_date) & (df["date"] <= end_date)].sort_values("date")
 
+@st.cache_data
+def get_stock_df(ticker, start_date, end_date):
+    fetch_start = start_date - timedelta(days=14)
+    df = fdr.DataReader(ticker, str(fetch_start), str(end_date))
+    df['Change_Pct'] = df['Close'].pct_change() * 100
+    return df.reset_index()
+
+# =========================
+# 3. 사이드바 및 종목 설정
+# =========================
+st.sidebar.header("📊 분석 설정")
 start = st.sidebar.date_input("시작일", value=pd.to_datetime("2025-01-14").date())
 end = st.sidebar.date_input("종료일", value=pd.to_datetime("2026-01-14").date())
 
-# CSV 경로(원시값 4컬럼이 들어있는 파일)
-SAMSUNG_CSV = st.sidebar.text_input(
-    "삼성 데이터 CSV 경로",
-    value=r"C:\Users\Jeon\sesac-miniProject\data\samsung_data.csv",
-)
-HYNIX_CSV = st.sidebar.text_input(
-    "하이닉스 데이터 CSV 경로",
-    value=r"C:\Users\Jeon\sesac-miniProject\data\hynix_data.csv",
-)
+# 종목 선택 (메인 화면 상단에서 사이드바로 이동하여 관리 효율 증대)
+target_stock = st.sidebar.selectbox("분석 종목 선택", ["삼성전자(005930)", "SK하이닉스(000660)"])
 
-# CSV 컬럼 매핑(표시명 -> 실제 컬럼명)
-RAW_METRICS = {
-    "조회수(view)": "조회수",
-    "게시글(post)": "게시글수",
-    "댓글(comment)": "댓글수",
-    "좋아요(like)": "좋아요수",
-}
-
-# 라인 색상
-METRIC_COLOR = {
-    "조회수(view)": "#FF9900",
-    "게시글(post)": "#2E86DE",
-    "댓글(comment)": "#27AE60",
-    "좋아요(like)": "#8E44AD",
-}
-
-st.sidebar.subheader("삼성 원시지표 표시")
-samsung_selected = st.sidebar.multiselect(
-    "삼성 차트에 표시할 지표(원시값)",
-    options=list(RAW_METRICS.keys()),
-    default=["조회수(view)"],
-    key="samsung_raw_select",
-)  # multiselect는 list를 반환 [web:10]
-
-st.sidebar.subheader("하이닉스 원시지표 표시")
-hynix_selected = st.sidebar.multiselect(
-    "하이닉스 차트에 표시할 지표(원시값)",
-    options=list(RAW_METRICS.keys()),
-    default=["조회수(view)"],
-    key="hynix_raw_select",
-)  # [web:10]
+# [핵심 수정] 종목별 파일 매핑 로직
+if "삼성" in target_stock:
+    ticker = "005930"
+    FNG_FILE = r"..\data\samsung_fng.csv"
+else:
+    ticker = "000660"
+    FNG_FILE = r"..\data\hynix_fng.csv"
 
 # =========================
-# 공통 함수: 캔들/라인 데이터 생성
+# 4. 메인 화면 구성
 # =========================
-def make_candles(ticker: str, start_date, end_date):
-    df = fdr.DataReader(ticker, str(start_date), str(end_date)).reset_index()
-    # DataReader 결과는 Date 인덱스와 Open/High/Low/Close 컬럼을 포함 [web:16]
-    candles = [
-        {
-            "time": d.strftime("%Y-%m-%d"),
-            "open": float(o),
-            "high": float(h),
-            "low": float(l),
-            "close": float(c),
-        }
-        for d, o, h, l, c in zip(df["Date"], df["Open"], df["High"], df["Low"], df["Close"])
+st.title(f"🎯 {target_stock} 심리-데이터 상관관계 분석")
+
+# 선택된 종목에 맞는 데이터 로드
+df_fng = get_fng_data(FNG_FILE, start, end)
+df_stock = get_stock_df(ticker, start, end)
+
+if not df_fng.empty and not df_stock.empty:
+    # --- [섹션 1] 날짜별 상세 분석 ---
+    st.subheader("📅 특정 날짜 심리-주가 분석")
+    selected_date = st.date_input("날짜 선택", value=df_fng["date"].iloc[-1])
+    
+    day_fng_row = df_fng[df_fng["date"] == selected_date]
+    stock_current = df_stock[df_stock['Date'].dt.date == selected_date]
+
+    if not day_fng_row.empty and not stock_current.empty:
+        fng_sorted = df_fng.sort_values("date").reset_index()
+        curr_idx = fng_sorted[fng_sorted["date"] == selected_date].index[0]
+        fval = day_fng_row.iloc[0]['fng_index']
+        f_delta = round(fval - fng_sorted.iloc[curr_idx-1]['fng_index'], 2) if curr_idx > 0 else 0
+
+        s_idx = stock_current.index[0]
+        day_prev = df_stock.iloc[s_idx-1] if s_idx > 0 else None
+        day_now = df_stock.iloc[s_idx]
+        day_next = df_stock.iloc[s_idx+1] if s_idx < len(df_stock)-1 else None
+
+        if fval >= 60: state, s_color = "탐욕 (Greed)", "#008000"
+        elif fval <= 40: state, s_color = "#FF4B4B", "#FF4B4B"
+        else: state, s_color = "중립 (Neutral)", "gray"
+
+        m1, m2, m3, m4 = st.columns(4)
+        with m1:
+            st.metric(label=f"[{selected_date}] 지수", value=f"{fval} pts", delta=f"{f_delta}")
+            st.markdown(f"<div class='status-box'>상태: <span style='color:{s_color}'>{state}</span></div>", unsafe_allow_html=True)
+        with m2:
+            if day_prev is not None: st.metric("전날 주가 변동", f"{day_prev['Close']:,}원", f"{day_prev['Change_Pct']:.2f}%")
+        with m3: st.metric("당일 주가 변동", f"{day_now['Close']:,}원", f"{day_now['Change_Pct']:.2f}%")
+        with m4:
+            if day_next is not None: st.metric("다음날 주가 변동", f"{day_next['Close']:,}원", f"{day_next['Change_Pct']:.2f}%")
+
+    st.divider()
+
+    # --- [섹션 2] 시계열 추세 분석 ---
+    st.subheader("📈 시계열 추세")
+    candles = [{"time": d.strftime("%Y-%m-%d"), "open": float(o), "high": float(h), "low": float(l), "close": float(c)} 
+               for d, o, h, l, c in zip(df_stock["Date"], df_stock["Open"], df_stock["High"], df_stock["Low"], df_stock["Close"])
+               if start <= d.date() <= end]
+    fng_line = [{"time": d.strftime("%Y-%m-%d"), "value": float(v)} for d, v in zip(df_fng["date"], df_fng["fng_index"])]
+    density_bar = [{"time": d.strftime("%Y-%m-%d"), "value": float(v)} for d, v in zip(df_fng["date"], df_fng["emotion_density"])]
+
+    renderLightweightCharts([{"chart": {"height": 350}, "series": [{"type": "Candlestick", "data": candles, "options": {"upColor": "red", "downColor": "blue"}}]}], key=f"p_chart_{ticker}")
+    fng_series = [
+        {"type": "Histogram", "data": density_bar, "options": {"color": "rgba(33, 150, 243, 0.2)", "priceScaleId": "left"}},
+        {"type": "Line", "data": fng_line, "options": {"color": "#AB47BC", "lineWidth": 3, "priceScaleId": "left", "title": "F&G Index"}}
     ]
-    return candles
+    renderLightweightCharts([{"chart": {"height": 250, "leftPriceScale": {"visible": True}}, "series": fng_series}], key=f"f_chart_{ticker}")
 
+    st.divider()
 
-def make_metric_line(csv_path: str, value_col: str, start_date, end_date):
-    df = pd.read_csv(csv_path, encoding="utf-8-sig")
-    df["날짜"] = pd.to_datetime(df["날짜"])
-    df = df[(df["날짜"].dt.date >= start_date) & (df["날짜"].dt.date <= end_date)].sort_values("날짜")
-
-    line = [{"time": d.strftime("%Y-%m-%d"), "value": float(v)} for d, v in zip(df["날짜"], df[value_col])]
-    return line
-
-
-def build_metric_series(csv_path, metric_map, selected_keys, start_date, end_date):
-    out = []
-    if not os.path.exists(csv_path):
-        st.warning(f"파일 없음: {csv_path}")
-        return out
-
-    for label in selected_keys:
-        col = metric_map[label]
-        try:
-            line = make_metric_line(csv_path, col, start_date, end_date)
-        except Exception as e:
-            st.warning(f"컬럼/데이터 읽기 실패: {label} ({col}) / {e}")
-            continue
-
-        out.append(
-            {
-                "type": "Line",
-                "data": line,
-                "options": {
-                    "color": METRIC_COLOR.get(label, "#333333"),
-                    "lineWidth": 2,
-                    "priceScaleId": "left",  # 보조축(왼쪽)에 원시지표 [web:4]
-                },
-            }
+    # --- [섹션 3] 상관관계 산점도 분석 (자동 업데이트) ---
+    st.subheader(f"📊 {target_stock} 심리 vs 수익률 상관관계")
+    
+    df_stock_copy = df_stock.copy()
+    df_stock_copy['Date_Only'] = pd.to_datetime(df_stock_copy['Date']).dt.date
+    df_stock_copy['Next_Day_Return'] = df_stock_copy['Change_Pct'].shift(-1)
+    
+    merged = pd.merge(df_fng, df_stock_copy[['Date_Only', 'Next_Day_Return']], left_on='date', right_on='Date_Only').dropna()
+    
+    if not merged.empty:
+        fig = px.scatter(
+            merged, x="fng_index", y="Next_Day_Return",
+            size="emotion_density", color="Next_Day_Return",
+            color_continuous_scale="RdYlGn",
+            labels={"fng_index": "공포·탐욕 지수", "Next_Day_Return": "다음날 수익률 (%)"},
+            hover_data=["date"], trendline="ols"
         )
-    return out
+        fig.update_layout(plot_bgcolor="white", height=500)
+        st.plotly_chart(fig, use_container_width=True)
 
+        corr = merged['fng_index'].corr(merged['Next_Day_Return'])
+        st.write(f"💡 **상관계수:** `{corr:.3f}`")
+        st.info(f"선택된 파일: `{os.path.basename(FNG_FILE)}`을 분석 중입니다.")
+    else:
+        st.warning("상관관계를 분석할 병합 데이터가 없습니다.")
 
-# =========================
-# 차트 렌더: 캔들 + 여러 라인
-# =========================
-def render_price_with_metrics(title: str, candles, metric_series_list, key: str):
-    chart_options = {
-        "height": 520,
-        "rightPriceScale": {
-            "borderVisible": True,
-            "autoScale": True,
-            "scaleMargins": {"top": 0.10, "bottom": 0.05},
-        },
-        "leftPriceScale": {
-            "visible": True,
-            "borderVisible": True,
-            "autoScale": True,
-            "scaleMargins": {"top": 0.10, "bottom": 0.05},
-        },
-        "layout": {
-            "background": {"type": "solid", "color": "white"},
-            "textColor": "black",
-        },
-        "grid": {
-            "vertLines": {"color": "rgba(197, 203, 206, 0.3)"},
-            "horzLines": {"color": "rgba(197, 203, 206, 0.3)"},
-        },
-    }
-
-    series = [
-        {
-            "type": "Candlestick",
-            "data": candles,
-            "options": {
-                "upColor": "red",
-                "downColor": "blue",
-                "borderUpColor": "red",
-                "borderDownColor": "blue",
-                "wickUpColor": "red",
-                "wickDownColor": "blue",
-            },
-        }
-    ]
-
-    # 선택된 지표 라인만 추가
-    series.extend(metric_series_list)
-
-    st.subheader(title)
-    renderLightweightCharts([{"chart": chart_options, "series": series}], key=key)  # 사용 예시 [web:2]
-    st.caption("오른쪽 축: 가격(원), 왼쪽 축: 원시지표(조회수/게시글/댓글/좋아요). 사이드바에서 지표 토글 가능.")
-
-
-# =========================
-# 1) 위: 삼성(005930) + 삼성 원시지표(토글)
-# =========================
-samsung_candles = make_candles("005930", start, end)
-samsung_metric_series = build_metric_series(SAMSUNG_CSV, RAW_METRICS, samsung_selected, start, end)
-
-render_price_with_metrics(
-    title="삼성전자(005930) 캔들 + 원시지표 토글",
-    candles=samsung_candles,
-    metric_series_list=samsung_metric_series,
-    key="chart_samsung",
-)
-
-st.divider()
-
-# =========================
-# 2) 아래: 하이닉스(000660) + 하이닉스 원시지표(토글)
-# =========================
-hynix_candles = make_candles("000660", start, end)
-hynix_metric_series = build_metric_series(HYNIX_CSV, RAW_METRICS, hynix_selected, start, end)
-
-render_price_with_metrics(
-    title="SK하이닉스(000660) 캔들 + 원시지표 토글",
-    candles=hynix_candles,
-    metric_series_list=hynix_metric_series,
-    key="chart_hynix",
-)
+else:
+    st.error(f"데이터를 불러올 수 없습니다. 파일 경로를 확인하세요: {FNG_FILE}")
