@@ -48,17 +48,15 @@ STOCKS = {
 stock_name = st.sidebar.selectbox("종목 선택", list(STOCKS.keys()))
 
 METRICS = {
-    "과열지수(OI)": "과열지수_OI",
-    "조회수": "조회수",
-    "게시글수": "게시글수",
-    "댓글수": "댓글수",
-    "좋아요수": "좋아요수",
+    "조회수": "조회수_z",
+    "게시글수": "게시글수_z",
+    "댓글수": "댓글수_z",
+    "좋아요수": "좋아요수_z",
 }
 
 COLOR_MAP = {
-    "과열지수(OI)": "rgba(50,50,50,0.7)",
     "조회수": "rgba(140,86,75,0.5)",
-    "게시글수": "rgba(214, 97, 77, 0.5)",
+    "게시글수": "rgba(50,50,50,0.7)",
     "댓글수": "rgba(44,160,140,0.5)",
     "좋아요수": "rgba(188,189,34,0.5)",
 }
@@ -66,7 +64,7 @@ COLOR_MAP = {
 selected_metrics = st.sidebar.multiselect(
     "표시할 커뮤니티 지표",
     list(METRICS.keys()),
-    default=["과열지수(OI)"]
+    default=["게시글수"]
 )
 
 # =========================
@@ -165,9 +163,9 @@ if compare_mode == "주가":
         },
     }]
 
-    render_chart("① DCInside + 주가", base_price_series, build_oi_series(dc_df), "dc_price", "주가(원)")
+    render_chart("① DCInside vs 주가", base_price_series, build_oi_series(dc_df), "dc_price", "주가(원)")
     st.divider()
-    render_chart("② FM코리아 + 주가", base_price_series, build_oi_series(fm_df), "fm_price", "주가(원)")
+    render_chart("② FM코리아 vs 주가", base_price_series, build_oi_series(fm_df), "fm_price", "주가(원)")
 
 # =========================
 # 거래량 기준
@@ -184,6 +182,6 @@ else:
         },
     }]
 
-    render_chart("① DCInside + 거래량", base_volume_series, build_oi_series(dc_df), "dc_volume", "거래량")
+    render_chart("① DCInside vs 거래량", base_volume_series, build_oi_series(dc_df), "dc_volume", "거래량")
     st.divider()
-    render_chart("② FM코리아 + 거래량", base_volume_series, build_oi_series(fm_df), "fm_volume", "거래량")
+    render_chart("② FM코리아 vs 거래량", base_volume_series, build_oi_series(fm_df), "fm_volume", "거래량")
