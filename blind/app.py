@@ -14,7 +14,7 @@ def find_matching_file(uploaded_files, comm, comp):
     comm_keywords = {
         "블라인드": ["블라인드", "블라", "blind"],
         "디시인사이드": ["디시", "디시인사이트", "dc"],
-        "에펨코리아": ["에펨", "fmkorea", "에펨코리아"]
+        "에펨코리아": ["에펨", "fmkorea", "에펨코리아"] 
     }
     # 기업별 키워드 리스트
     comp_keywords = {
@@ -85,7 +85,12 @@ if uploaded_file:
 
     # --- 섹션 1: 전체 흐름 분석 ---
     st.header(f"1️⃣ {comm_name} 반응과 시장의 연결고리")
-    selected_metric = st.selectbox("비교 지표 선택:", ["조회수", "댓글수", "좋아요수", "게시글수"])
+    
+    # [수정] 새 파일의 가중치 지표(과열지수_OI)와 z-score 항목들을 선택 메뉴에 포함했습니다.
+    selected_metric = st.selectbox(
+        "비교 지표 선택:", 
+        [ "조회수", "댓글수", "좋아요수", "게시글수"]
+    )
     
     col1, col2 = st.columns([2, 1])
     with col1:
