@@ -32,10 +32,10 @@ def get_cleaned_analysis_data(fng_path, ticker, start_date, end_date):
     df_stock = fdr.DataReader(ticker, str(fetch_start), str(end_date))
     df_stock = df_stock.reset_index()
     df_stock['Date_Only'] = df_stock['Date'].dt.date
-    
+
     df_fng = pd.read_csv(fng_path)
     df_fng["date"] = pd.to_datetime(df_fng["date"]).dt.date
-    
+
     # [핵심] 영업일 기준 Inner Merge (주말/공휴일 자동 제거)
     merged = pd.merge(
         df_fng, 
@@ -44,16 +44,16 @@ def get_cleaned_analysis_data(fng_path, ticker, start_date, end_date):
         right_on='Date_Only', 
         how='inner'
     )
-    
+
     # 변동률 계산: (오늘종가 - 어제종가) / 어제종가
     merged['Change_Pct'] = merged['Close'].pct_change() * 100
-    
+
     # 차기 거래일 상승률: 영업일만 남은 상태에서 shift를 하여 주말을 건너뛴 다음 장날 데이터를 가져옴
     merged['Next_Trading_Day_Return'] = merged['Change_Pct'].shift(-1)
-    
+
     # 사용자가 설정한 날짜 범위로 필터링
     merged = merged[(merged['date'] >= start_date) & (merged['date'] <= end_date)]
-    
+
     # 인덱스 재설정 및 결측치 제거 (심리지수나 종가가 없는 경우)
     return merged.reset_index(drop=True)
 
@@ -67,9 +67,9 @@ end = st.sidebar.date_input("종료일", value=pd.to_datetime("2026-01-14").date
 target_stock = st.sidebar.selectbox("분석 종목 선택", ["삼성전자(005930)", "SK하이닉스(000660)"])
 
 if "삼성" in target_stock:
-    ticker, FNG_FILE = "005930", r"..\data\samsung_fng.csv"
+    ticker, FNG_FILE = "005930", r"./data/samsung_fng.csv"
 else:
-    ticker, FNG_FILE = "000660", r"..\data\hynix_fng.csv"
+    ticker, FNG_FILE = "000660", r"./data/hynix_fng.csv"
 
 # =========================
 # 4. 데이터 처리 및 메인 화면
@@ -84,12 +84,12 @@ if not df_final.empty:
     st.subheader("📅 특정 날짜 심리-주가 상세")
     available_dates = df_final['date'].tolist()
     selected_date = st.select_slider("날짜 선택 (거래일 기준)", options=available_dates, value=available_dates[-1])
-    
+
     # 선택된 날짜의 데이터 인덱스 추출
     selected_row = df_final[df_final["date"] == selected_date]
     day_data = selected_row.iloc[0]
     curr_idx = selected_row.index[0]
-    
+
     # 전일 대비 지수 변화량 계산
     f_delta = 0
     if curr_idx > 0:
@@ -120,7 +120,7 @@ if not df_final.empty:
     candles = [{"time": d.strftime("%Y-%m-%d"), "open": float(o), "high": float(h), "low": float(l), "close": float(c)} 
                for d, o, h, l, c in zip(df_final["date"], df_final["Open"], df_final["High"], df_final["Low"], df_final["Close"])]
     fng_line = [{"time": d.strftime("%Y-%m-%d"), "value": float(v)} for d, v in zip(df_final["date"], df_final["fng_index"])]
-    
+
     renderLightweightCharts([{"chart": {"height": 350}, "series": [{"type": "Candlestick", "data": candles, "options": {"upColor": "red", "downColor": "blue"}}]}], key=f"p_chart_{ticker}")
     renderLightweightCharts([{"chart": {"height": 200}, "series": [{"type": "Line", "data": fng_line, "options": {"color": "#AB47BC", "lineWidth": 3}}]}], key=f"f_chart_{ticker}")
 
