@@ -127,42 +127,75 @@ if not df_final.empty:
     st.divider()
 
     # --- [섹션 3] 상관관계 산점도 분석 (1줄에 1개씩) ---
-    # 산점도 분석 시 차기 거래일 데이터가 없는 마지막 행은 제외 (OLS 에러 방지)
+    
+    # 1. 펨코(Femco) 데이터 분석
+    st.header("🏢 Source: 펨코(FM Korea)")
     corr_df = df_final.dropna(subset=['Next_Trading_Day_Return', 'Volume'])
 
-    # 1. 상승률 상관관계
-    st.subheader("📊 [예측] 심리 지수 vs 차기 거래일 상승률")
-    st.write("> 오늘의 시장 심리가 다음 장날(주말 제외) 주가 변동에 미치는 영향을 분석합니다.")
+    st.subheader("📊 [펨코] 심리 지수 vs 차기 거래일 상승률")
     fig_ret = px.scatter(
         corr_df, x="fng_index", y="Next_Trading_Day_Return",
         size="emotion_density", color="Next_Trading_Day_Return",
         color_continuous_scale="RdYlGn",
-        labels={"fng_index": "오늘의 공포·탐욕 지수", "Next_Trading_Day_Return": "차기 거래일 상승률 (%)"},
+        labels={"fng_index": "오늘의 펨코 지수", "Next_Trading_Day_Return": "차기 거래일 상승률 (%)"},
         hover_data=["date"], trendline="ols"
     )
     fig_ret.update_layout(height=600)
     st.plotly_chart(fig_ret, use_container_width=True)
-    
-    ret_corr = corr_df['fng_index'].corr(corr_df['Next_Trading_Day_Return'])
-    st.info(f"📈 **상관계수:** `{ret_corr:.3f}` (오늘의 심리와 다음 영업일 주가 변동 간의 관계)")
+    st.info(f"📈 **펨코 수익률 상관계수:** `{corr_df['fng_index'].corr(corr_df['Next_Trading_Day_Return']):.3f}`")
 
-    st.markdown("<br>", unsafe_allow_html=True)
-
-    # 2. 거래량 상관관계
-    st.subheader("📊 [동행] 심리 지수 vs 당일 거래량")
-    st.write("> 장이 열린 날의 심리 지수와 해당 날짜의 실제 거래 활동량을 분석합니다.")
+    st.subheader("📊 [펨코] 심리 지수 vs 당일 거래량")
     fig_vol = px.scatter(
         corr_df, x="fng_index", y="Volume",
         size="emotion_density", color="fng_index",
         color_continuous_scale="Viridis",
-        labels={"fng_index": "당일 공포·탐욕 지수", "Volume": "당일 거래량"},
+        labels={"fng_index": "당일 펨코 지수", "Volume": "당일 거래량"},
         hover_data=["date"], trendline="ols"
     )
     fig_vol.update_layout(height=600)
     st.plotly_chart(fig_vol, use_container_width=True)
+    st.info(f"📈 **펨코 거래량 상관계수:** `{corr_df['fng_index'].corr(corr_df['Volume']):.3f}`")
+
+    # 2. 디시인사이드(DC Inside) 데이터 분석 추가
+    st.divider()
+    st.header("🏢 Source: 디시인사이드(DC Inside)")
     
-    vol_corr = corr_df['fng_index'].corr(corr_df['Volume'])
-    st.info(f"📈 **상관계수:** `{vol_corr:.3f}` (심리 과열과 거래 활성도 간의 관계)")
+    # 종목별 DC 파일 경로 설정
+    if "삼성" in target_stock:
+        DC_FILE = r"..\data\samsung_fng_dc.csv"
+    else:
+        DC_FILE = r"..\data\hynix_fng_dc.csv"
+        
+    df_dc = get_cleaned_analysis_data(DC_FILE, ticker, start, end)
+    
+    if not df_dc.empty:
+        corr_dc = df_dc.dropna(subset=['Next_Trading_Day_Return', 'Volume'])
+
+        st.subheader("📊 [디시] 심리 지수 vs 차기 거래일 상승률")
+        fig_dc_ret = px.scatter(
+            corr_dc, x="fng_index", y="Next_Trading_Day_Return",
+            size="emotion_density", color="Next_Trading_Day_Return",
+            color_continuous_scale="RdYlGn",
+            labels={"fng_index": "오늘의 디시 지수", "Next_Trading_Day_Return": "차기 거래일 상승률 (%)"},
+            hover_data=["date"], trendline="ols"
+        )
+        fig_dc_ret.update_layout(height=600)
+        st.plotly_chart(fig_dc_ret, use_container_width=True)
+        st.info(f"📈 **디시 수익률 상관계수:** `{corr_dc['fng_index'].corr(corr_dc['Next_Trading_Day_Return']):.3f}`")
+
+        st.subheader("📊 [디시] 심리 지수 vs 당일 거래량")
+        fig_dc_vol = px.scatter(
+            corr_dc, x="fng_index", y="Volume",
+            size="emotion_density", color="fng_index",
+            color_continuous_scale="Viridis",
+            labels={"fng_index": "당일 디시 지수", "Volume": "당일 거래량"},
+            hover_data=["date"], trendline="ols"
+        )
+        fig_dc_vol.update_layout(height=600)
+        st.plotly_chart(fig_dc_vol, use_container_width=True)
+        st.info(f"📈 **디시 거래량 상관계수:** `{corr_dc['fng_index'].corr(corr_dc['Volume']):.3f}`")
+    else:
+        st.warning("디시인사이드 데이터 파일을 찾을 수 없습니다.")
 
 else:
     st.error("데이터를 불러오거나 병합하는 데 실패했습니다. 파일 경로와 주식 코드를 확인해주세요.")
