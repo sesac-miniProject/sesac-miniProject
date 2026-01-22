@@ -8,6 +8,36 @@ from datetime import timedelta
 
 st.set_page_config(page_title="커뮤니티-주가 통합 정밀 분석기", layout="wide")
 
+# --- 1. 파일 매칭 로직 (제시해주신 키워드 반영) ---
+def find_matching_file(uploaded_files, comm, comp):
+    # 커뮤니티별 키워드 리스트
+    comm_keywords = {
+        "블라인드": ["블라인드", "블라", "blind"],
+        "디시인사이드": ["디시", "디시인사이트", "dc"],
+        "에펨코리아": ["에펨", "fmkorea", "에펨코리아"]
+    }
+    # 기업별 키워드 리스트
+    comp_keywords = {
+        "삼성전자": ["삼성", "삼전" , "samsung"],
+        "SK하이닉스": ["하이닉스", "hynix"],
+        "현대차": ["현대", "현대차", "hyundai"]
+    }
+    
+    target_comm_list = comm_keywords.get(comm, [])
+    target_comp_list = comp_keywords.get(comp, [])
+    
+    if uploaded_files:
+        for file in uploaded_files:
+            fname = file.name.lower()
+            # 커뮤니티 키워드 중 하나라도 있고 + 기업 키워드 중 하나라도 있는 파일 찾기
+            has_comm = any(k in fname for k in target_comm_list)
+            has_comp = any(k in fname for k in target_comp_list)
+            
+            if has_comm and has_comp:
+                return file
+    return None
+
+
 # --- 1. 데이터 로드 및 전처리 ---
 @st.cache_data
 def load_data(file, ticker):
@@ -28,35 +58,33 @@ def load_data(file, ticker):
     df['변동성(%)'] = ((df['High'] - df['Low']) / df['Open']) * 100
     return df
 
-# --- 2. 사이드바 및 파일 인식 ---
-st.sidebar.header("🔍 분석 설정")
+# --- 2. 사이드바: 9개 통합 업로드 ---
+st.sidebar.header("📂 데이터 통합 업로드")
+
+# [수정] 이제 9개 파일을 한꺼번에 드래그해서 넣으실 수 있습니다.
+all_files = st.sidebar.file_uploader(
+    "9개 파일을 모두 드래그해서 넣어주세요", 
+    type=['csv'], 
+    accept_multiple_files=True 
+)
+
+st.sidebar.divider()
+st.sidebar.header("🔍 분석 필터")
 comm_name = st.sidebar.selectbox("커뮤니티", ["블라인드", "에펨코리아", "디시인사이드"])
-uploaded_file = st.sidebar.file_uploader(f"{comm_name} 데이터 업로드", type=['csv'])
-
-# 파일명 기반 자동 기업 인식 로직
-detected_company = "삼성전자" # 기본값
-if uploaded_file:
-    fname = uploaded_file.name
-    if "하이닉스" in fname or "SK" in fname:
-        detected_company = "SK하이닉스"
-    elif "현대" in fname:
-        detected_company = "현대차"
-    elif "삼성" in fname:
-        detected_company = "삼성전자"
-
-# 사이드바 선택 상자 (파일명으로 자동 매칭된 값이 기본 선택됨)
-company = st.sidebar.selectbox("대상 기업", ["삼성전자", "SK하이닉스", "현대차"], 
-                               index=["삼성전자", "SK하이닉스", "현대차"].index(detected_company))
+company = st.sidebar.selectbox("대상 기업", ["삼성전자", "SK하이닉스", "현대차"])
 
 ticker_map = {"삼성전자": "005930.KS", "SK하이닉스": "000660.KS", "현대차": "005380.KS"}
 
+# [핵심] 9개 파일 중 선택된 조건에 맞는 파일을 찾아옵니다.
+uploaded_file = find_matching_file(all_files, comm_name, company)
+
+# --- 이후 모든 로직은 기존과 동일하게 유지 ---
 if uploaded_file:
     df = load_data(uploaded_file, ticker_map[company])
     df_sorted = df.sort_values('날짜')
 
     # --- 섹션 1: 전체 흐름 분석 ---
     st.header(f"1️⃣ {comm_name} 반응과 시장의 연결고리")
-    # [수정] 종합지수 항목 제거
     selected_metric = st.selectbox("비교 지표 선택:", ["조회수", "댓글수", "좋아요수", "게시글수"])
     
     col1, col2 = st.columns([2, 1])
@@ -103,11 +131,9 @@ if uploaded_file:
 
     with col4:
         st.subheader("👀 데이터 읽어주기")
-        # 전후 수익률 계산
         pre_ret = focus_df[focus_df['날짜'] < sel_dt]['수익률(%)'].sum()
         post_ret = focus_df[focus_df['날짜'] > sel_dt]['수익률(%)'].sum()
         
-        # 쉬운 설명 로직
         if pre_ret > 3 and post_ret < -1:
             st.warning("⚠️ **'이미 늦었을지도?' 패턴**\n\n사람들이 커뮤니티에서 북적거리기 전에 주가가 이미 많이 올랐어요. 소문이 다 퍼진 뒤에는 주가가 오히려 떨어졌으니 주의가 필요한 구간이었습니다.")
         elif pre_ret < -3 and post_ret > 1:
@@ -149,7 +175,6 @@ if uploaded_file:
     with col_v:
         st.plotly_chart(px.pie(values=v_counts.values, names=v_counts.index, title="거래량 반응 유형 분포", hole=0.4), use_container_width=True)
     
-    # [수정] 기업명 변수 자동 적용
     st.markdown(f"### 🔍 데이터가 말해주는 {company}의 특징")
     main_p = p_counts.idxmax()
     main_v = v_counts.idxmax()
@@ -157,7 +182,6 @@ if uploaded_file:
     conclusion_text = f"**{company}** 주식은 관심 폭발 시 주로 **[{main_p}]**과(와) **[{main_v}]** 현상을 보입니다."
     st.info(conclusion_text)
 
-    # 상관관계 기반 상세 풀이 (company 변수 적용)
     if main_p == "소문 끝 매도 시작":
         st.write(f"* **왜 이런 결론이 나왔나요?** {company}은 화력이 세지기 전 이미 주가가 오르는 경향이 포착되었습니다. 게시판이 뜨거울 때 들어오는 '뒷북 매수'를 주의해야 하는 종목입니다.")
     elif main_p == "분위기 반전":
@@ -172,4 +196,4 @@ if uploaded_file:
         'Close': '{:,.0f}', 'Volume': '{:,.0f}', '변동성(%)': '{:.2f}%', '수익률(%)': '{:+.2f}%'
     }))
 else:
-    st.info("파일을 업로드하시면 파일명에 맞춰 해당 기업을 자동으로 분석합니다.")
+    st.info("9개의 파일을 한꺼번에 업로드해 주세요. 선택하신 기업/커뮤니티에 맞춰 파일이 자동으로 인식됩니다.")
