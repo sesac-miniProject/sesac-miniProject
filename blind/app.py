@@ -14,7 +14,7 @@ def find_matching_file(uploaded_files, comm, comp):
     comm_keywords = {
         "블라인드": ["블라인드", "블라", "blind"],
         "디시인사이드": ["디시", "디시인사이트", "dc"],
-        "에펨코리아": ["에펨", "fmkorea", "에펨코리아"]
+        "에펨코리아": ["에펨", "fmkorea", "에펨코리아"] 
     }
     # 기업별 키워드 리스트
     comp_keywords = {
