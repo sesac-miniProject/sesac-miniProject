@@ -1,187 +1,229 @@
+
 import os
 import pandas as pd
+import numpy as np
 import streamlit as st
 import FinanceDataReader as fdr
+import plotly.express as px
 from streamlit_lightweight_charts import renderLightweightCharts
-
-st.set_page_config(layout="wide")
+from datetime import timedelta
 
 # =========================
-# Sidebar
+# Page Config
 # =========================
-st.sidebar.header("설정")
+st.set_page_config(layout="wide", page_title="커뮤니티 → 주식 시장 반응 분석")
+
+# =========================
+# 데이터 경로 (UI 비노출)
+# =========================
+DATA_PATH = {
+    "DCInside": {
+        "삼성전자": "../zzimni/data/daily_outputs/삼성전자_일별집계_OI_2025-01-14_2026-01-14.csv",
+        "SK하이닉스": "../zzimni/data/daily_outputs/하이닉스_일별집계_OI_2025-01-14_2026-01-14.csv",
+    },
+    "FmKorea": {
+        "삼성전자": "../data/samsung_data.csv",
+        "SK하이닉스": "../data/hynix_data.csv",
+    }
+}
+
+STOCK_INFO = {
+    "삼성전자": "005930",
+    "SK하이닉스": "000660"
+}
+
+# =========================
+# Sidebar UI
+# =========================
+st.sidebar.header("📊 분석 설정")
 
 start = st.sidebar.date_input("시작일", pd.to_datetime("2025-01-14").date())
 end   = st.sidebar.date_input("종료일",   pd.to_datetime("2026-01-14").date())
 
-compare_mode = st.sidebar.selectbox(
-    "비교 기준 선택",
-    ["주가", "거래량"]
+community = st.sidebar.selectbox("커뮤니티 선택", ["DCInside", "FmKorea"])
+stock_name = st.sidebar.selectbox("주식 선택", ["삼성전자", "SK하이닉스"])
+
+selected_metrics = st.sidebar.multiselect(
+    "표시할 커뮤니티 지표",
+    ["조회수", "게시글수", "댓글수", "좋아요수"],
+    default=["게시글수"]
 )
 
-DC_DIR = st.sidebar.text_input(
-    "DCInside CSV 경로",
-    value="../zzimni/data/daily_outputs"
-)
-
-FM_DIR = st.sidebar.text_input(
-    "FM코리아 CSV 경로",
-    value="../data"
+stock_indicators = st.sidebar.multiselect(
+    "표시할 주식 지표",
+    ["주가", "거래량", "수익률"],
+    default=["주가"]
 )
 
 # =========================
-# 종목 설정
+# 컬럼 매핑
 # =========================
-STOCKS = {
-    "삼성전자": {
-        "ticker": "005930",
-        "dc_csv": "삼성전자_일별집계_OI_2025-01-14_2026-01-14.csv",
-        "fm_csv": "samsung_data.csv",
-    },
-    "하이닉스": {
-        "ticker": "000660",
-        "dc_csv": "하이닉스_일별집계_OI_2025-01-14_2026-01-14.csv",
-        "fm_csv": "hynix_data.csv",
-    },
-}
-
-stock_name = st.sidebar.selectbox("종목 선택", list(STOCKS.keys()))
-
-METRICS = {
+METRIC_COL = {
     "조회수": "조회수_z",
     "게시글수": "게시글수_z",
     "댓글수": "댓글수_z",
     "좋아요수": "좋아요수_z",
 }
 
-COLOR_MAP = {
-    "조회수": "rgba(140,86,75,0.5)",
-    "게시글수": "rgba(50,50,50,0.7)",
-    "댓글수": "rgba(44,160,140,0.5)",
-    "좋아요수": "rgba(188,189,34,0.5)",
+METRIC_COLOR = {
+    "조회수": "rgba(140,86,75,0.6)",
+    "게시글수": "rgba(50,50,50,0.8)",
+    "댓글수": "rgba(44,160,140,0.6)",
+    "좋아요수": "rgba(188,189,34,0.6)",
 }
 
-selected_metrics = st.sidebar.multiselect(
-    "표시할 커뮤니티 지표",
-    list(METRICS.keys()),
-    default=["게시글수"]
-)
-
 # =========================
-# Data Load
+# Data Loaders
 # =========================
 @st.cache_data
 def load_price(ticker, start, end):
-    return fdr.DataReader(ticker, str(start), str(end)).reset_index()
+    df = fdr.DataReader(ticker, str(start - timedelta(days=14)), str(end))
+    return df.reset_index()
 
 @st.cache_data
-def load_csv(path, start, end):
+def load_community(path, start, end):
     df = pd.read_csv(path, encoding="utf-8-sig")
-    df["날짜"] = pd.to_datetime(df["날짜"])
-    return df[(df["날짜"].dt.date >= start) & (df["날짜"].dt.date <= end)]
+    df["날짜"] = pd.to_datetime(df["날짜"]).dt.date
+    return df[(df["날짜"] >= start) & (df["날짜"] <= end)]
 
 # =========================
-# Series Builders
+# Lightweight Chart Helpers
 # =========================
-def make_candles(df):
+def make_candle(df):
     return [{
         "time": d.strftime("%Y-%m-%d"),
-        "open": float(o),
-        "high": float(h),
-        "low": float(l),
-        "close": float(c),
+        "open": float(o), "high": float(h),
+        "low": float(l), "close": float(c)
     } for d,o,h,l,c in zip(df["Date"],df["Open"],df["High"],df["Low"],df["Close"])]
 
 def make_volume(df):
-    return [{
-        "time": d.strftime("%Y-%m-%d"),
-        "value": float(v),
-    } for d,v in zip(df["Date"], df["Volume"])]
+    return [{"time": d.strftime("%Y-%m-%d"), "value": float(v)}
+            for d,v in zip(df["Date"], df["Volume"])]
 
-def build_oi_series(df):
+def make_return(df):
+    df = df.copy()
+    df["Return"] = df["Close"].pct_change() * 100
+    return [{"time": d.strftime("%Y-%m-%d"), "value": float(v)}
+            for d,v in zip(df["Date"], df["Return"]) if not np.isnan(v)]
+
+def build_community_series(df):
     series = []
     for m in selected_metrics:
-        col = METRICS[m]
-        line = [
-            {"time": d.strftime("%Y-%m-%d"), "value": float(v)}
-            for d,v in zip(df["날짜"], df[col])
-        ]
         series.append({
             "type": "Line",
-            "data": line,
+            "data": [{"time": d.strftime("%Y-%m-%d"), "value": float(v)}
+                     for d,v in zip(df["날짜"], df[METRIC_COL[m]])],
             "options": {
-                "color": COLOR_MAP[m],
+                "color": METRIC_COLOR[m],
                 "lineWidth": 2,
-                "priceScaleId": "left",
-            },
+                "priceScaleId": "left"
+            }
         })
     return series
 
-def render_chart(title, base_series, oi_series, key, right_label):
-    chart = {
-        "height": 480,
-        "layout": {"background": {"type": "solid", "color": "white"}, "textColor": "black"},
-        "rightPriceScale": {"borderVisible": True},
-        "leftPriceScale": {"visible": True},
-        "grid": {
-            "vertLines": {"color": "rgba(200,200,200,0.3)"},
-            "horzLines": {"color": "rgba(200,200,200,0.3)"},
-        },
-    }
-
+def render_lightweight(title, base_series, comm_series, key, right_label):
     st.subheader(title)
     renderLightweightCharts(
-        [{"chart": chart, "series": base_series + oi_series}],
+        [{
+            "chart": {"height": 420},
+            "series": base_series + comm_series
+        }],
         key=key
     )
     st.caption(f"오른쪽 축: {right_label} / 왼쪽 축: 커뮤니티 지표")
 
 # =========================
-# Run
+# Scatter Data Builder
 # =========================
-stock = STOCKS[stock_name]
+@st.cache_data
+def build_scatter(comm_df, price_df, metric_col, target):
+    price_df["Date_Only"] = price_df["Date"].dt.date
+    merged = pd.merge(
+        comm_df,
+        price_df[["Date_Only", "Close", "Volume"]],
+        left_on="날짜",
+        right_on="Date_Only",
+        how="inner"
+    )
 
-price_df = load_price(stock["ticker"], start, end)
-dc_df = load_csv(os.path.join(DC_DIR, stock["dc_csv"]), start, end)
-fm_df = load_csv(os.path.join(FM_DIR, stock["fm_csv"]), start, end)
+    merged["Return"] = merged["Close"].pct_change() * 100
 
-st.title(f"{stock_name} 커뮤니티 비교 ({compare_mode} 기준)")
+    if target == "주가":
+        merged["Target"] = merged["Return"].shift(-1)
+        ylabel = "차기 거래일 수익률 (%)"
+    elif target == "거래량":
+        merged["Target"] = merged["Volume"].shift(-1)
+        ylabel = "차기 거래일 거래량"
+    else:
+        merged["Target"] = merged["Return"].shift(-1)
+        ylabel = "차기 거래일 수익률 (%)"
+
+    merged = merged.dropna(subset=[metric_col, "Target"])
+    return merged, ylabel
 
 # =========================
-# 주가 기준
+# Main
 # =========================
-if compare_mode == "주가":
-    candles = make_candles(price_df)
+ticker = STOCK_INFO[stock_name]
+comm_path = DATA_PATH[community][stock_name]
 
-    base_price_series = [{
-        "type": "Candlestick",
-        "data": candles,
-        "options": {
-            "upColor": "red", "downColor": "blue",
-            "borderUpColor": "red", "borderDownColor": "blue",
-            "wickUpColor": "red", "wickDownColor": "blue",
-        },
-    }]
+price_df = load_price(ticker, start, end)
+comm_df = load_community(comm_path, start, end)
 
-    render_chart("① DCInside vs 주가", base_price_series, build_oi_series(dc_df), "dc_price", "주가(원)")
+st.title(f"{stock_name} | {community} 커뮤니티 → 시장 반응 분석")
+
+# =========================
+# 주식 지표별 렌더링
+# =========================
+for indicator in stock_indicators:
+
     st.divider()
-    render_chart("② FM코리아 vs 주가", base_price_series, build_oi_series(fm_df), "fm_price", "주가(원)")
+    st.header(f"📌 {indicator} 기준 분석")
 
-# =========================
-# 거래량 기준
-# =========================
-else:
-    volume = make_volume(price_df)
+    # --- 시계열 ---
+    if indicator == "주가":
+        base = [{"type": "Candlestick", "data": make_candle(price_df)}]
+    elif indicator == "거래량":
+        base = [{"type": "Histogram", "data": make_volume(price_df)}]
+    else:
+        base = [{"type": "Line", "data": make_return(price_df),
+                 "options": {"color": "blue", "lineWidth": 2}}]
 
-    base_volume_series = [{
-        "type": "Histogram",
-        "data": volume,
-        "options": {
-            "color": "rgba(120,120,200,0.5)",
-            "priceScaleId": "right",
-        },
-    }]
+    render_lightweight(
+        f"{indicator} vs 커뮤니티 지표 (당일)",
+        base,
+        build_community_series(comm_df),
+        f"{indicator}_{community}",
+        indicator
+    )
 
-    render_chart("① DCInside vs 거래량", base_volume_series, build_oi_series(dc_df), "dc_volume", "거래량")
-    st.divider()
-    render_chart("② FM코리아 vs 거래량", base_volume_series, build_oi_series(fm_df), "fm_volume", "거래량")
+    # --- 산점도 ---
+    st.subheader(f"📊 커뮤니티 → 다음 거래일 {indicator}")
+    for m in selected_metrics:
+        df_scatter, ylabel = build_scatter(
+            comm_df,
+            price_df,
+            METRIC_COL[m],
+            indicator
+        )
+
+        corr = df_scatter[METRIC_COL[m]].corr(df_scatter["Target"])
+
+        fig = px.scatter(
+            df_scatter,
+            x=METRIC_COL[m],
+            y="Target",
+            trendline="ols",
+            color="Target",
+            color_continuous_scale="RdYlGn",
+            labels={
+                METRIC_COL[m]: f"{m} (Z-score)",
+                "Target": ylabel
+            },
+            hover_data=["날짜"]
+        )
+
+        fig.update_layout(height=500)
+        chart_key = f"scatter_{community}_{stock_name}_{indicator}_{m}" 
+        st.plotly_chart( fig, use_container_width=True, key=chart_key )
+        st.info(f"📈 {m} 상관계수: {corr:.3f}")
